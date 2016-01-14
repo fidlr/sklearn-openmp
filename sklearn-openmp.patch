@@ -1,0 +1,169 @@
+diff --git a/makeLib.sh b/makeLib.sh
+deleted file mode 100755
+index de72d50..0000000
+--- a/makeLib.sh
++++ /dev/null
+@@ -1,3 +0,0 @@
+-#!/bin/sh
+-CFLAGS=-fopenmp CXXFLAGS=-fofopenmp LDFLAGS=-lgomp python setup.py build
+-sudo CFLAGS=-fopenmp CXXFLAGS=-fofopenmp LDFLAGS=-lgomp python setup.py install
+diff --git a/sklearn/svm/setup.py b/sklearn/svm/setup.py
+index 711e868..815cfb0 100644
+--- a/sklearn/svm/setup.py
++++ b/sklearn/svm/setup.py
+@@ -21,7 +21,8 @@ def configuration(parent_package='', top_path=None):
+                                 join('src', 'libsvm', 'svm.h')],
+                        # Force C++ linking in case gcc is picked up instead
+                        # of g++ under windows with some versions of MinGW
+-                       extra_link_args=['-lstdc++'],
++                       extra_link_args=['-lstdc++', '-lgomp', '-lrt'],
++                       extra_compile_args=['-O3', '-fopenmp'],
+                        )
+ 
+     libsvm_sources = ['libsvm.c']
+@@ -33,11 +34,13 @@ def configuration(parent_package='', top_path=None):
+     config.add_extension('libsvm',
+                          sources=libsvm_sources,
+                          include_dirs=[numpy.get_include(),
+-                                       join('src', 'libsvm')],
++                                       join('src', 'libsvm'), './ -fopenmp'],
+                          libraries=['libsvm-skl'],
+                          depends=libsvm_depends,
++                         extra_link_args=['-lstdc++', '-lgomp', '-lrt'],
++                         extra_compile_args=['-O3', '-fopenmp']
+                          )
+-
++    
+     ### liblinear module
+     cblas_libs, blas_info = get_blas_info()
+     if os.name == 'posix':
+@@ -55,9 +58,9 @@ def configuration(parent_package='', top_path=None):
+                          include_dirs=[join('..', 'src', 'cblas'),
+                                        numpy.get_include(),
+                                        blas_info.pop('include_dirs', [])],
+-                         extra_compile_args=blas_info.pop('extra_compile_args',
+-                                                          []),
++                         extra_compile_args=blas_info.pop('extra_compile_args', []) + ['-O3', '-fopenmp'] ,
+                          depends=liblinear_depends,
++                         extra_link_args=['-lstdc++', '-lgomp', '-lrt'],
+                          # extra_compile_args=['-O0 -fno-inline'],
+                          ** blas_info)
+ 
+@@ -69,6 +72,8 @@ def configuration(parent_package='', top_path=None):
+                          sources=libsvm_sparse_sources,
+                          include_dirs=[numpy.get_include(),
+                                        join("src", "libsvm")],
++                         extra_link_args=['-lstdc++', '-lgomp', '-lrt'],
++                         extra_compile_args=['-O3','-fopenmp'],
+                          depends=[join("src", "libsvm", "svm.h"),
+                                   join("src", "libsvm",
+                                        "libsvm_sparse_helper.c")])
+diff --git a/sklearn/svm/src/liblinear/linear.cpp b/sklearn/svm/src/liblinear/linear.cpp
+index 5ba05c7..76f6cce 100644
+--- a/sklearn/svm/src/liblinear/linear.cpp
++++ b/sklearn/svm/src/liblinear/linear.cpp
+@@ -2450,7 +2450,9 @@ model* train(const problem *prob, const parameter *param)
+ 			}
+ 			else
+ 			{
+-				model_->w=Malloc(double, w_size*nr_class);
++                // single core
++                /*
++                model_->w=Malloc(double, w_size*nr_class);
+ 				double *w=Malloc(double, w_size);
+ 				model_->n_iter=Malloc(int, nr_class);
+ 				for(i=0;i<nr_class;i++)
+@@ -2472,6 +2474,49 @@ model* train(const problem *prob, const parameter *param)
+ 						model_->w[j*nr_class+i] = w[j];
+ 				}
+ 				free(w);
++                */
++                
++                // multi-core
++                model_->w=Malloc(double, w_size*nr_class);
++                model_->n_iter=Malloc(int, nr_class);
++                #pragma omp parallel for private(i, j, k) 
++				for(i=0;i<nr_class;i++)
++				{
++					problem sub_prob_omp;
++					sub_prob_omp.l = l;
++					sub_prob_omp.n = n;
++					sub_prob_omp.x = x;
++					sub_prob_omp.y = Malloc(double,l);
++
++					int si = start[i];
++					int ei = si+count[i];
++
++					double *w=Malloc(double, w_size);
++
++					k=0;
++					for(; k<si; k++)
++						sub_prob_omp.y[k] = -1;
++					for(; k<ei; k++)
++						sub_prob_omp.y[k] = +1;
++					for(; k<sub_prob_omp.l; k++)
++						sub_prob_omp.y[k] = -1;
++
++                    // no param->init_sol                    
++					//if(param->init_sol != NULL)
++					//	for(j=0;j<w_size;j++)
++					//		w[j] = param->init_sol[j*nr_class+i];
++					//else
++						for(j=0;j<w_size;j++)
++							w[j] = 0;
++
++					model_->n_iter[i]=train_one(&sub_prob_omp, param, w, weighted_C[i], param->C);
++
++					for(j=0;j<w_size;j++)
++						model_->w[j*nr_class+i] = w[j];
++					free(sub_prob_omp.y);
++					free(w);
++				}
++                
+ 			}
+ 
+ 		}
+@@ -2510,6 +2555,7 @@ void cross_validation(const problem *prob, const parameter *param, int nr_fold,
+ 	for(i=0;i<=nr_fold;i++)
+ 		fold_start[i]=i*l/nr_fold;
+ 
++    #pragma omp parallel for private(i) schedule(dynamic)
+ 	for(i=0;i<nr_fold;i++)
+ 	{
+ 		int begin = fold_start[i];
+diff --git a/sklearn/svm/src/libsvm/svm.cpp b/sklearn/svm/src/libsvm/svm.cpp
+index f6d6882..db3f0ce 100644
+--- a/sklearn/svm/src/libsvm/svm.cpp
++++ b/sklearn/svm/src/libsvm/svm.cpp
+@@ -1417,6 +1417,7 @@ public:
+ 		int start, j;
+ 		if((start = cache->get_data(i,&data,len)) < len)
+ 		{
++            #pragma omp parallel for private(j) schedule(guided)
+ 			for(j=start;j<len;j++)
+ 				data[j] = (Qfloat)(y[i]*y[j]*(this->*kernel_function)(i,j));
+ 		}
+@@ -1466,6 +1467,7 @@ public:
+ 		int start, j;
+ 		if((start = cache->get_data(i,&data,len)) < len)
+ 		{
++            #pragma omp parallel for private(j) schedule(guided)
+ 			for(j=start;j<len;j++)
+ 				data[j] = (Qfloat)(this->*kernel_function)(i,j);
+ 		}
+@@ -2795,6 +2797,7 @@ double PREFIX(predict_values)(const PREFIX(model) *model, const PREFIX(node) *x,
+ 		double *sv_coef = model->sv_coef[0];
+ 		double sum = 0;
+ 		
++        #pragma omp parallel for private(i) reduction(+:sum) schedule(guided)
+ 		for(i=0;i<model->l;i++)
+ #ifdef _DENSE_REP
+                     sum += sv_coef[i] * NAMESPACE::Kernel::k_function(x,model->SV+i,model->param);
+@@ -2815,6 +2818,7 @@ double PREFIX(predict_values)(const PREFIX(model) *model, const PREFIX(node) *x,
+ 		int l = model->l;
+ 		
+ 		double *kvalue = Malloc(double,l);
++        #pragma omp parallel for private(i) schedule(guided) 
+ 		for(i=0;i<l;i++)
+ #ifdef _DENSE_REP
+                     kvalue[i] = NAMESPACE::Kernel::k_function(x,model->SV+i,model->param);
