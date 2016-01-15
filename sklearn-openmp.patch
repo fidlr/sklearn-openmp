@@ -1,12 +1,3 @@
-diff --git a/makeLib.sh b/makeLib.sh
-deleted file mode 100755
-index de72d50..0000000
---- a/makeLib.sh
-+++ /dev/null
-@@ -1,3 +0,0 @@
--#!/bin/sh
--CFLAGS=-fopenmp CXXFLAGS=-fofopenmp LDFLAGS=-lgomp python setup.py build
--sudo CFLAGS=-fopenmp CXXFLAGS=-fofopenmp LDFLAGS=-lgomp python setup.py install
 diff --git a/sklearn/svm/setup.py b/sklearn/svm/setup.py
 index 711e868..ea042af 100644
 --- a/sklearn/svm/setup.py
@@ -26,10 +17,10 @@ index 711e868..ea042af 100644
                           libraries=['libsvm-skl'],
                           depends=libsvm_depends,
 +                         extra_link_args=['-lstdc++', '-lgomp', '-lrt'],
-+                         extra_compile_args=['-O3', '-fopenmp']
++                         extra_compile_args=['-O3', '-fopenmp'],
                           )
 -
-+    
++
      ### liblinear module
      cblas_libs, blas_info = get_blas_info()
      if os.name == 'posix':
@@ -275,7 +266,7 @@ index 5ba05c7..daf41b5 100644
 +	{
 +		feature_node * const xi=x[i];
 +		wa[i] = sparse_operator::dot(s, xi);
-+		
++
  		wa[i] = C[i]*D[i]*wa[i];
  
 -	XTv(wa, Hs);
@@ -326,7 +317,7 @@ index 5ba05c7..daf41b5 100644
 -		}
 -	}
 +		reduce_vectors->sum_scale_x(v[i], x[i]);
-+	
++
 +	reduce_vectors->reduce_sum(XTv);
  }
  
@@ -384,7 +375,7 @@ index 5ba05c7..daf41b5 100644
 -	subXTv(wa, Hs);
 +		reduce_vectors->sum_scale_x(wa[i], xi);
 +	}
-+	
++
 +	reduce_vectors->reduce_sum(Hs);
  	for(i=0;i<w_size;i++)
  		Hs[i] = s[i] + 2*Hs[i];
@@ -611,7 +602,7 @@ index 5ba05c7..daf41b5 100644
  	double *xTx = new double[l];
 -	int *index = new int[l];
 +	//int max_iter = 1000;
-+	int *index = new int[l];	
++	int *index = new int[l];
  	double *alpha = new double[2*l]; // store alpha and C - alpha
  	schar *y = new schar[l];
  	int max_inner_iter = 100; // for inner Newton
@@ -620,7 +611,7 @@ index 5ba05c7..daf41b5 100644
  		}
  	}
 -
-+	
++
  	// Initial alpha can be set here. Note that
  	// 0 < alpha[i] < upper_bound[GETI(i)]
  	// alpha[2*i] + alpha[2*i+1] = upper_bound[GETI(i)]
@@ -691,13 +682,13 @@ index 5ba05c7..daf41b5 100644
  }
  
 -// A coordinate descent algorithm for
-+// A coordinate descent algorithm for 
++// A coordinate descent algorithm for
  // L1-regularized L2-loss support vector classification
  //
  //  min_w \sum |wj| + C \sum max(0, 1-yi w^T xi)^2,
  //
 -// Given:
-+// Given: 
++// Given:
  // x, y, Cp, Cn
  // eps is the stopping tolerance
  //
@@ -749,13 +740,13 @@ index 5ba05c7..daf41b5 100644
  }
  
 -// A coordinate descent algorithm for
-+// A coordinate descent algorithm for 
++// A coordinate descent algorithm for
  // L1-regularized logistic regression problems
  //
  //  min_w \sum |wj| + C \sum log(1+exp(-yi w^T xi)),
  //
 -// Given:
-+// Given: 
++// Given:
  // x, y, Cp, Cn
  // eps is the stopping tolerance
  //
@@ -928,7 +919,7 @@ index 5ba05c7..daf41b5 100644
  					sub_prob.y[k] = +1;
 +				for(; k<sub_prob.l; k++)
 +					sub_prob.y[k] = -1;
-+				
++
 +				if(param->init_sol != NULL)
 +					for(i=0;i<w_size;i++)
 +						model_->w[i] = param->init_sol[i];
@@ -997,7 +988,7 @@ index 5ba05c7..daf41b5 100644
 +                    // multi-core multi class
 +                    model_->w=Malloc(double, w_size*nr_class);
 +                    model_->n_iter=Malloc(int, nr_class);
-+                    #pragma omp parallel for private(i, j, k) 
++                    #pragma omp parallel for private(i, j, k)
 +                    for(i=0;i<nr_class;i++)
 +                    {
 +                        problem sub_prob_omp;
@@ -1207,7 +1198,7 @@ index 5ba05c7..daf41b5 100644
 +		param1.C = param1.C*ratio;
 +	}
 +
-+	if(param1.C > max_C && max_C > start_C) 
++	if(param1.C > max_C && max_C > start_C)
 +		info("warning: maximum C reached.\n");
 +	free(fold_start);
 +	free(perm);
@@ -1374,7 +1365,7 @@ index 5ba05c7..daf41b5 100644
 -#if 0
  // use inline here for better performance (around 20% faster than the non-inline one)
 -static inline double get_w_value(const struct model *model_, int idx, int label_idx)
-+static inline double get_w_value(const struct model *model_, int idx, int label_idx) 
++static inline double get_w_value(const struct model *model_, int idx, int label_idx)
  {
  	int nr_class = model_->nr_class;
  	int solver_type = model_->param.solver_type;
@@ -1383,7 +1374,7 @@ index 5ba05c7..daf41b5 100644
  	if(check_regression_model(model_))
  		return w[idx];
 -	else
-+	else 
++	else
  	{
  		if(label_idx < 0 || label_idx >= nr_class)
  			return 0;
@@ -1408,7 +1399,7 @@ index 5ba05c7..daf41b5 100644
  		&& param->solver_type != L2R_L1LOSS_SVR_DUAL)
  		return "unknown solver type";
  
-+	if(param->init_sol != NULL 
++	if(param->init_sol != NULL
 +		&& param->solver_type != L2R_LR && param->solver_type != L2R_L2LOSS_SVC)
 +		return "Initial-solution specification supported only for solver L2R_LR and L2R_L2LOSS_SVC";
 +
@@ -1684,7 +1675,7 @@ index f6d6882..db3f0ce 100644
  		int l = model->l;
  		
  		double *kvalue = Malloc(double,l);
-+        #pragma omp parallel for private(i) schedule(guided) 
++        #pragma omp parallel for private(i) schedule(guided)
  		for(i=0;i<l;i++)
  #ifdef _DENSE_REP
                      kvalue[i] = NAMESPACE::Kernel::k_function(x,model->SV+i,model->param);
